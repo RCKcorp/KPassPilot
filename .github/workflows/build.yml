@@ -1,0 +1,109 @@
+name: Build KPassPilot
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "**/*.cs"
+      - "KPassPilot.csproj"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install KeePass
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install keepass --version=2.61.1 -y --no-progress
+
+          $candidates = @(
+            "$env:ProgramFiles\KeePass Password Safe 2\KeePass.exe",
+            "${env:ProgramFiles(x86)}\KeePass Password Safe 2\KeePass.exe"
+          )
+          $kp = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $kp) {
+            $kp = Get-ChildItem 'C:\ProgramData\chocolatey\lib\keepass' -Filter KeePass.exe -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty FullName -First 1
+          }
+          if (-not $kp) { throw 'KeePass.exe introuvable après installation.' }
+
+          New-Item -ItemType Directory -Force -Path '.\lib' | Out-Null
+          Copy-Item $kp '.\lib\KeePass.exe' -Force
+          "KEEPASS_EXE=$kp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build DLL
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (-not $msbuild) { throw 'MSBuild.exe introuvable.' }
+
+          & $msbuild .\KPassPilot.csproj /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU
+          if ($LASTEXITCODE -ne 0) { throw "MSBuild a échoué avec le code $LASTEXITCODE" }
+          if (-not (Test-Path '.\bin\Release\KPassPilot.dll')) { throw 'KPassPilot.dll absent.' }
+
+          $product = (Get-Item '.\bin\Release\KPassPilot.dll').VersionInfo.ProductName
+          if ($product -ne 'KeePass Plugin') { throw "ProductName invalide : $product" }
+
+      - name: Create PLGX
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:RUNNER_TEMP 'plgx\KPassPilot'
+          New-Item -ItemType Directory -Force -Path $src | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $src 'Properties') | Out-Null
+
+          Copy-Item '.\*.cs' $src -Force
+          Copy-Item '.\Properties\AssemblyInfo.cs' (Join-Path $src 'Properties\AssemblyInfo.cs') -Force
+          Copy-Item '.\KPassPilot.csproj' (Join-Path $src 'KPassPilot.csproj') -Force
+
+          $projectPath = Join-Path $src 'KPassPilot.csproj'
+          [xml]$project = Get-Content $projectPath
+          $ns = New-Object System.Xml.XmlNamespaceManager($project.NameTable)
+          $ns.AddNamespace('msb', 'http://schemas.microsoft.com/developer/msbuild/2003')
+
+          $keepassRef = $project.SelectSingleNode("//msb:Reference[@Include='KeePass']", $ns)
+          if ($keepassRef) {
+            @($keepassRef.ChildNodes) | Where-Object { $_.LocalName -in @('HintPath', 'Private') } | ForEach-Object { [void]$keepassRef.RemoveChild($_) }
+          }
+          $kpProperty = $project.SelectSingleNode('//msb:KeePassExe', $ns)
+          if ($kpProperty) { [void]$kpProperty.ParentNode.RemoveChild($kpProperty) }
+          $ensureTarget = $project.SelectSingleNode("//msb:Target[@Name='EnsureKeePassReference']", $ns)
+          if ($ensureTarget) { [void]$ensureTarget.ParentNode.RemoveChild($ensureTarget) }
+          $project.Save($projectPath)
+
+          $args = @('--plgx-create', $src, '--plgx-prereq-kp:2.40', '--plgx-prereq-net:4.7.2', '--plgx-prereq-os:Windows')
+          $proc = Start-Process -FilePath $env:KEEPASS_EXE -ArgumentList $args -WorkingDirectory (Split-Path $env:KEEPASS_EXE -Parent) -PassThru
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 1
+            try { [void]$proc.CloseMainWindow() } catch {}
+            $proc.Refresh()
+          }
+          if (-not $proc.HasExited) { try { $proc.Kill() } catch {}; throw 'KeePass did not finish PLGX creation.' }
+
+          $plgx = Join-Path (Split-Path $src -Parent) 'KPassPilot.plgx'
+          if (-not (Test-Path $plgx)) { throw 'KPassPilot.plgx absent.' }
+          New-Item -ItemType Directory -Force -Path '.\dist' | Out-Null
+          Copy-Item '.\bin\Release\KPassPilot.dll' '.\dist\KPassPilot.dll' -Force
+          Copy-Item $plgx '.\dist\KPassPilot.plgx' -Force
+
+      - name: Upload plugin artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: KPassPilot-plugin
+          path: |
+            dist/KPassPilot.dll
+            dist/KPassPilot.plgx
+          if-no-files-found: error

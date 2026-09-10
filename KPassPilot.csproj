@@ -1,0 +1,65 @@
+<Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{B30FA275-0FB9-44D2-BEC6-2BEF4CA2D965}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>KPassPilot</RootNamespace>
+    <AssemblyName>KPassPilot</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <LangVersion>5</LangVersion>
+    <KeePassExe Condition=" '$(KeePassExe)' == '' ">$(MSBuildProjectDirectory)\lib\KeePass.exe</KeePassExe>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
+    <Reference Include="KeePass">
+      <HintPath>$(KeePassExe)</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Models.cs" />
+    <Compile Include="PCGenerator.cs" />
+    <Compile Include="Theme.cs" />
+    <Compile Include="Dialogs.cs" />
+    <Compile Include="IconPickerForm.cs" />
+    <Compile Include="PropertiesForm.cs" />
+    <Compile Include="CreatePCForm.cs" />
+    <Compile Include="ConfigEditorForm.cs" />
+    <Compile Include="BlockEditorForm.cs" />
+    <Compile Include="TypeEditorForm.cs" />
+    <Compile Include="AboutForm.cs" />
+    <Compile Include="KPassPilotExt.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+
+  <Target Name="EnsureKeePassReference" BeforeTargets="ResolveReferences" Condition="!Exists('$(KeePassExe)')">
+    <Error Text="KeePass.exe introuvable. Compilez avec /p:KeePassExe=&quot;C:\...\KeePass.exe&quot;." />
+  </Target>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

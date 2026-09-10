@@ -1,0 +1,14 @@
+bin/
+obj/
+lib/
+release/
+artifacts/
+.vs/
+*.user
+*.suo
+*.pdb
+*.dll
+*.plgx
+KPassPilot.config.xml
+*.private.xml
+*.production.xml
